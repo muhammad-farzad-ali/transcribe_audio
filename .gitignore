@@ -1,0 +1,26 @@
+# Large media — never commit recordings
+*.m4a
+*.mp3
+*.wav
+*.mp4
+*.flac
+*.ogg
+*.aac
+*.webm
+
+# Python / environment
+.venv/
+__pycache__/
+*.pyc
+.python-version
+
+# Working data
+chunks/
+models/
+out/
+*.log
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/

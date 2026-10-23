@@ -49,10 +49,10 @@ class VramMonitor(threading.Thread):
         super().__init__(daemon=True)
         self.interval = interval
         self.peak = 0
-        self._stop = threading.Event()
+        self._halt = threading.Event()
 
     def run(self) -> None:
-        while not self._stop.is_set():
+        while not self._halt.is_set():
             try:
                 out = subprocess.run(
                     ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
@@ -61,10 +61,10 @@ class VramMonitor(threading.Thread):
                 self.peak = max(self.peak, int(out.splitlines()[0]))
             except Exception:
                 pass
-            self._stop.wait(self.interval)
+            self._halt.wait(self.interval)
 
     def stop(self) -> int:
-        self._stop.set()
+        self._halt.set()
         self.join(timeout=5)
         return self.peak
 

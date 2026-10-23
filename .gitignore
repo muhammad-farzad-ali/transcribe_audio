@@ -24,3 +24,6 @@ out/
 .DS_Store
 .idea/
 .vscode/
+
+# Working state
+work/

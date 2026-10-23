@@ -71,3 +71,8 @@ relative WER of candidate models on this machine.
   match, and a mid-sentence cut at a boundary is stitched back together.
 - `condition_on_previous_text=False` and `temperature=[0, 0.2, 0.4]` are used
   to suppress the repetition loops Whisper falls into on long inputs.
+- Avoid `--prompt` for chunked runs unless you verify it: on this recording an
+  `initial_prompt` glossary made the model silently skip the first seconds of
+  several chunks (audio starts mid-sentence). `bench.py` showed it is
+  content-dependent, not length-dependent. The transcript here was produced
+  without a prompt.

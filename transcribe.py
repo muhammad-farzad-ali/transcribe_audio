@@ -28,7 +28,12 @@ from typing import Any, Iterable
 # CUDA shared libraries shipped as pip wheels
 # --------------------------------------------------------------------------- #
 def _ensure_cuda_libs() -> None:
-    """Put pip-installed cuBLAS/cuDNN on LD_LIBRARY_PATH, re-exec once."""
+    """Make pip-installed cuBLAS/cuDNN discoverable by CTranslate2.
+
+    Wheels live under site-packages/nvidia/*/lib, which the dynamic loader
+    does not search. We add them to LD_LIBRARY_PATH and preload them with
+    RTLD_GLOBAL, so CTranslate2's own dlopen() calls resolve.
+    """
     if os.environ.get("_FW_CUDA_LIBS") == "1":
         return
     site = (
@@ -38,13 +43,29 @@ def _ensure_cuda_libs() -> None:
         / "site-packages"
         / "nvidia"
     )
-    libs = [str(p) for p in (site / "cublas" / "lib", site / "cudnn" / "lib") if p.is_dir()]
-    if not libs:
+    lib_dirs = [d for d in (site / "cublas" / "lib", site / "cudnn" / "lib") if d.is_dir()]
+    if not lib_dirs:
         return
-    env = dict(os.environ)
-    env["LD_LIBRARY_PATH"] = os.pathsep.join(libs + [env.get("LD_LIBRARY_PATH", "")]).strip(os.pathsep)
-    env["_FW_CUDA_LIBS"] = "1"
-    os.execvpe(sys.executable, [sys.executable, *sys.argv], env)
+    os.environ["LD_LIBRARY_PATH"] = os.pathsep.join(
+        [str(d) for d in lib_dirs] + [os.environ.get("LD_LIBRARY_PATH", "")]
+    ).strip(os.pathsep)
+
+    import ctypes
+
+    # Order matters a little: base libs before the cudnn sub-libraries.
+    patterns = ("libcublasLt.so*", "libcublas.so*", "libcudnn.so*", "libcudnn_*.so*")
+    loaded: set[str] = set()
+    for pattern in patterns:
+        for lib_dir in lib_dirs:
+            for so in sorted(lib_dir.glob(pattern)):
+                if so.name in loaded:
+                    continue
+                try:
+                    ctypes.CDLL(str(so), mode=ctypes.RTLD_GLOBAL)
+                    loaded.add(so.name)
+                except OSError:
+                    pass
+    os.environ["_FW_CUDA_LIBS"] = "1"
 
 
 _ensure_cuda_libs()
@@ -331,31 +352,59 @@ def strip_duplicated_prefix(text: str, prev_text: str, max_words: int = 80) -> t
     return " ".join(words[best_k:]).strip(), max(0.05, 1.0 - best_k / len(new))
 
 
+def common_suffix_prefix(a: str, b: str, max_words: int = 80) -> int:
+    """Number of trailing words of `a` that also open `b` (fuzzy)."""
+    aw = _tokens(a)[-max_words:]
+    bw = _tokens(b)[:max_words]
+    best_k, best_sim = 0, 0.0
+    for k in range(min(len(aw), len(bw)), 1, -1):
+        sim = similarity(" ".join(aw[-k:]), " ".join(bw[:k]))
+        if sim >= 0.75 and (sim > best_sim or (sim == best_sim and k > best_k)):
+            best_k, best_sim = k, sim
+    return best_k
+
+
 def merge_chunks(chunks: list[dict[str, Any]], overlap: float, verbose: bool = True) -> list[dict[str, Any]]:
     merged: list[dict[str, Any]] = []
     for ci, chunk in enumerate(chunks):
         cs = float(chunk["start"])
+        segs = chunk["segments"]
+        # The previous chunk was cut mid-audio at its boundary, so its trailing
+        # segments (inside this chunk's overlap) can be truncated mid-sentence.
+        # The new chunk re-transcribes that audio from a clean window, so let it
+        # own the overlap and drop the previous tail.
+        if ci > 0 and merged and segs and float(segs[0]["start"]) <= cs + 2.0:
+            new_head = clean_text(segs[0]["text"])
+            last = merged[-1]
+            if last["end"] > cs:
+                k = common_suffix_prefix(last["text"], new_head)
+                if k:
+                    words = last["text"].split()
+                    kept = words[:-k] if k < len(words) else []
+                    if kept:
+                        last["text"] = " ".join(kept)
+                        last["end"] = cs
+                    else:
+                        merged.pop()
+                else:
+                    last["end"] = max(last["start"] + 0.2, cs)
+            merged = [s for s in merged if s["start"] < cs - 0.05]
         prev_tail = " ".join(s["text"] for s in merged[-6:])
-        for seg in chunk["segments"]:
+        for seg in segs:
             s = float(seg["start"])
             e = float(seg["end"])
             text = clean_text(seg["text"])
             if not text:
                 continue
-            # Inside the overlap region the previous chunk already covers this audio.
-            if ci > 0 and s < cs + overlap - 0.25:
-                if e <= cs + overlap - 0.25:
-                    # Wholly inside the overlap: drop when the previous chunk
-                    # really did transcribe it, keep if it looks like a gap.
-                    if similarity(text, prev_tail) >= 0.3:
-                        continue
-                else:
-                    stripped, frac = strip_duplicated_prefix(text, prev_tail)
-                    if stripped:
-                        text = stripped
-                        s = e - (e - s) * frac
-                    elif similarity(text, prev_tail) >= 0.6:
-                        continue
+            # A segment starting before this chunk's start straddles the overlap;
+            # strip the words already covered by the previous chunk.
+            if ci > 0 and s < cs - 0.05:
+                stripped, frac = strip_duplicated_prefix(text, prev_tail)
+                if stripped:
+                    text = stripped
+                    s = e - (e - s) * frac
+                elif similarity(text, prev_tail) >= 0.6:
+                    continue
             # collapse immediate repeats (classic Whisper loop)
             if merged:
                 last = merged[-1]
@@ -368,7 +417,7 @@ def merge_chunks(chunks: list[dict[str, Any]], overlap: float, verbose: bool = T
             merged.append({"start": s, "end": e, "text": text, "chunk": ci})
         if verbose:
             print(
-                f"  merged chunk {ci:02d}  +{len(chunk['segments']):4d} segs -> {len(merged):5d} total",
+                f"  merged chunk {ci:02d}  +{len(segs):4d} segs -> {len(merged):5d} total",
                 flush=True,
             )
     merged.sort(key=lambda x: x["start"])
@@ -392,20 +441,76 @@ def stitch_broken(segments: list[dict[str, Any]]) -> None:
         cur["text"] = ""
 
 
+def fix_overlaps(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Clamp cue ends so no two entries overlap in the subtitle timeline."""
+    for a, b in zip(segments, segments[1:]):
+        if a["end"] > b["start"]:
+            a["end"] = b["start"]
+    return [s for s in segments if s["end"] > s["start"]]
+
+
 # --------------------------------------------------------------------------- #
 # writers
 # --------------------------------------------------------------------------- #
-def write_outputs(segments: list[dict[str, Any]], outdir: Path, stem: str = "transcript") -> dict[str, Path]:
+def pack_cues(text: str, max_chars: int) -> list[str]:
+    """Greedy word packing into subtitle-sized cues."""
+    out: list[str] = []
+    current: list[str] = []
+    for word in text.split():
+        candidate = " ".join(current + [word])
+        if current and len(candidate) > max_chars:
+            out.append(" ".join(current))
+            current = [word]
+        else:
+            current.append(word)
+    if current:
+        out.append(" ".join(current))
+    return out
+
+
+def split_for_subtitles(segments: list[dict[str, Any]], max_chars: int) -> list[dict[str, Any]]:
+    """Split paragraph-length ASR segments into readable cues.
+
+    Cue times are interpolated by character share inside the source segment,
+    which keeps subtitles aligned without needing word-level timestamps.
+    """
+    cues: list[dict[str, Any]] = []
+    for seg in segments:
+        pieces = pack_cues(seg["text"], max_chars)
+        if not pieces:
+            continue
+        total = sum(len(p) for p in pieces)
+        span = max(0.0, seg["end"] - seg["start"])
+        cursor = seg["start"]
+        for i, piece in enumerate(pieces):
+            share = len(piece) / total if total else 1 / len(pieces)
+            end = seg["end"] if i == len(pieces) - 1 else cursor + span * share
+            cues.append({"start": round(cursor, 3), "end": round(max(end, cursor + 0.35), 3), "text": piece})
+            cursor = end
+    # avoid cumulative rounding drift pushing a cue past the next one
+    for i in range(len(cues) - 1):
+        if cues[i]["end"] > cues[i + 1]["start"]:
+            cues[i]["end"] = cues[i + 1]["start"]
+    return [c for c in cues if c["end"] > c["start"]]
+
+
+def write_outputs(
+    segments: list[dict[str, Any]],
+    outdir: Path,
+    stem: str = "transcript",
+    subtitle_max_chars: int = 84,
+) -> dict[str, Path]:
     outdir.mkdir(parents=True, exist_ok=True)
     segments = [s for s in segments if s["text"]]
+    cues = split_for_subtitles(segments, subtitle_max_chars)
 
     srt = []
-    for i, s in enumerate(segments, 1):
+    for i, s in enumerate(cues, 1):
         srt.append(f"{i}\n{fmt_ts(s['start'])} --> {fmt_ts(s['end'])}\n{s['text']}\n")
     (outdir / f"{stem}.srt").write_text("\n".join(srt), encoding="utf-8")
 
     vtt = ["WEBVTT", ""]
-    for i, s in enumerate(segments, 1):
+    for i, s in enumerate(cues, 1):
         vtt.append(f"{i}\n{fmt_ts(s['start'], '.')} --> {fmt_ts(s['end'], '.')}\n{s['text']}\n")
     (outdir / f"{stem}.vtt").write_text("\n".join(vtt), encoding="utf-8")
 
@@ -486,6 +591,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     p.add_argument("--min-chunk-minutes", type=float, default=3.0)
     p.add_argument("--cut-window-seconds", type=float, default=45.0)
     p.add_argument("--cut-noise-db", type=float, default=-32.0)
+    p.add_argument("--subtitle-max-chars", type=int, default=84, help="max characters per subtitle cue")
     p.add_argument("--prompt", default=None, help="initial prompt / glossary")
     p.add_argument("--prompt-file", type=Path, default=None)
     p.add_argument("--max-chunks", type=int, default=0)
@@ -555,8 +661,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             done.append(data)
         segments = merge_chunks(done, args.overlap_seconds)
         stitch_broken(segments)
-        segments = [s for s in segments if s["text"].strip()]
-        paths = write_outputs(segments, args.outdir, args.stem)
+        segments = fix_overlaps([s for s in segments if s["text"].strip()])
+        paths = write_outputs(segments, args.outdir, args.stem, args.subtitle_max_chars)
         print(f"[done] {quality_report(segments, duration)}", flush=True)
         for ext, path in paths.items():
             print(f"  {ext:5s} {path}  ({path.stat().st_size / 1024:.0f} KB)", flush=True)
@@ -631,9 +737,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     print("[merge] combining chunks ...", flush=True)
     segments = merge_chunks(done, args.overlap_seconds)
     stitch_broken(segments)
-    segments = [s for s in segments if s["text"].strip()]
+    segments = fix_overlaps([s for s in segments if s["text"].strip()])
 
-    paths = write_outputs(segments, args.outdir, args.stem)
+    paths = write_outputs(segments, args.outdir, args.stem, args.subtitle_max_chars)
     print(f"[done] {quality_report(segments, duration)}", flush=True)
     for ext, path in paths.items():
         print(f"  {ext:5s} {path}  ({path.stat().st_size / 1024:.0f} KB)", flush=True)

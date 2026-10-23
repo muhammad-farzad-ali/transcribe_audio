@@ -207,6 +207,70 @@ def norm_text(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", "", text.lower()).strip()
 
 
+# Conservative normalisation of domain words the ASR hears but often writes in
+# lowercase. Only applied to standalone tokens, never inside existing words.
+PROPER_TERMS = {
+    "clean tracks": "CleanTracks",
+    "adrian": "Adrian",
+    "sql": "SQL",
+    "aws": "AWS",
+    "s3": "S3",
+    "iam": "IAM",
+    "acl": "ACL",
+    "api": "API",
+    "apis": "APIs",
+    "json": "JSON",
+    "csv": "CSV",
+    "python": "Python",
+    "numpy": "NumPy",
+    "pyspark": "PySpark",
+    "spark": "Spark",
+    "hadoop": "Hadoop",
+    "kafka": "Kafka",
+    "airflow": "Airflow",
+    "snowflake": "Snowflake",
+    "bigquery": "BigQuery",
+    "redshift": "Redshift",
+    "databricks": "Databricks",
+    "parquet": "Parquet",
+    "avro": "Avro",
+    "mongodb": "MongoDB",
+    "pymongo": "PyMongo",
+    "sqlalchemy": "SQLAlchemy",
+    "pytest": "PyTest",
+    "jupyter": "Jupyter",
+    "docker": "Docker",
+    "kubernetes": "Kubernetes",
+    "terraform": "Terraform",
+    "github": "GitHub",
+    "mysql": "MySQL",
+    "postgresql": "PostgreSQL",
+    "sqlite": "SQLite",
+}
+
+
+def polish_text(text: str, capitalize: bool = False) -> str:
+    """Cosmetic cleanup: sentence capitals, pronoun I, canonical tech nouns."""
+    if capitalize and text:
+        text = text[0].upper() + text[1:]
+    text = re.sub(r"\bi'(m|ve|ll|d|re)\b", lambda m: "I'" + m.group(1), text)
+    text = re.sub(r"\bi\b", "I", text)
+    text = re.sub(
+        r"([.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text
+    )
+    for src, dst in PROPER_TERMS.items():
+        text = re.sub(r"\b" + re.escape(src) + r"\b", dst, text, flags=re.IGNORECASE)
+    return text
+
+
+def polish_segments(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    capitalize = True
+    for seg in segments:
+        seg["text"] = polish_text(seg["text"], capitalize)
+        capitalize = seg["text"].rstrip()[-1:] in ".!?"
+    return segments
+
+
 def similarity(a: str, b: str) -> float:
     """Token-level Jaccard similarity, cheap and good enough for dedupe."""
     ta, tb = set(norm_text(a).split()), set(norm_text(b).split())
@@ -266,7 +330,7 @@ def transcribe_wav(
                 beam_size=beam_size,
                 batch_size=batch,
                 vad_filter=vad,
-                vad_parameters={"min_silence_duration_ms": 500, "speech_pad_ms": 250},
+                vad_parameters=None,  # library defaults: keeps more context per utterance
                 condition_on_previous_text=False,
                 initial_prompt=prompt,
                 temperature=[0.0, 0.2, 0.4],
@@ -598,6 +662,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     p.add_argument("--keep-wav", action="store_true")
     p.add_argument("--force", action="store_true", help="ignore cached chunk results")
     p.add_argument("--merge-only", action="store_true", help="rebuild outputs from cached chunk JSONs")
+    p.add_argument("--no-polish", action="store_true", help="skip cosmetic text cleanup (capitals, tech nouns)")
     p.add_argument("--no-vad", action="store_true")
     return p.parse_args(list(argv) if argv is not None else None)
 
@@ -661,7 +726,10 @@ def main(argv: Iterable[str] | None = None) -> int:
             done.append(data)
         segments = merge_chunks(done, args.overlap_seconds)
         stitch_broken(segments)
-        segments = fix_overlaps([s for s in segments if s["text"].strip()])
+        segments = [s for s in segments if s["text"].strip()]
+        if not args.no_polish:
+            segments = polish_segments(segments)
+        segments = fix_overlaps(segments)
         paths = write_outputs(segments, args.outdir, args.stem, args.subtitle_max_chars)
         print(f"[done] {quality_report(segments, duration)}", flush=True)
         for ext, path in paths.items():
@@ -737,7 +805,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     print("[merge] combining chunks ...", flush=True)
     segments = merge_chunks(done, args.overlap_seconds)
     stitch_broken(segments)
-    segments = fix_overlaps([s for s in segments if s["text"].strip()])
+    segments = [s for s in segments if s["text"].strip()]
+    if not args.no_polish:
+        segments = polish_segments(segments)
+    segments = fix_overlaps(segments)
 
     paths = write_outputs(segments, args.outdir, args.stem, args.subtitle_max_chars)
     print(f"[done] {quality_report(segments, duration)}", flush=True)

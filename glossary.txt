@@ -1,0 +1,7 @@
+Data engineering course by Adrian, using the fictional music streaming company CleanTracks.
+Key terms: data engineering, data pipeline, data lake, data warehouse, database, RDBMS, SQL,
+NoSQL, data ingestion, extraction, transformation, loading, ETL, ELT, batch processing,
+stream processing, parallel computing, cloud computing, AWS, S3, IAM, ACL, pre-signed URLs,
+bucket policies, GCP, Azure, Snowflake, BigQuery, Redshift, Databricks, Apache Spark, Hadoop,
+Kafka, Airflow, dbt, Parquet, Avro, ORC, OLAP, OLTP, schema, data model, normalization,
+partitioning, orchestration, scheduling, recommendation engine.

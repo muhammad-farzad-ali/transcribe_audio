@@ -11548,7 +11548,7 @@
    "id": 1924,
    "start": 52466.32,
    "end": 52493.47,
-   "text": "You might now practice some of these techniques using the data set provided here or apply these techniques you just learned to a different data set you might tackle a project thanks again for joining and congratulations on complete hello and welcome to the course this is miriam antona I am a software engineer and I will be teaching you how to clean data in a SQL server database in chapter one we will discover why cleaning data is important"
+   "text": "You might now practice some of these techniques using the data set provided here or apply these techniques you just learned to a different data set you might tackle a project thanks again for joining and congratulations on complete hello and welcome to the course this is miriam antona I am a software engineer and I will be teaching you how to clean data in a SQL Server database in chapter one we will discover why cleaning data is important"
   },
   {
    "id": 1925,
@@ -12838,7 +12838,7 @@
    "id": 2139,
    "start": 58141.89,
    "end": 58170.74,
-   "text": "Thank you very much for your time I hope you enjoyed this course and I hope the content of this course will help you with your hi my name is florin angelescu and I will be your instructor for this course on building and optimizing SQL server triggers after completing this course you will feel confident implementing and using triggers in your day-to-day tasks let's get started a trigger is a special type of stored procedure"
+   "text": "Thank you very much for your time I hope you enjoyed this course and I hope the content of this course will help you with your hi my name is florin angelescu and I will be your instructor for this course on building and optimizing SQL Server triggers after completing this course you will feel confident implementing and using triggers in your day-to-day tasks let's get started a trigger is a special type of stored procedure"
   },
   {
    "id": 2140,
@@ -14116,13 +14116,13 @@
    "id": 2352,
    "start": 63960.48,
    "end": 63989.22,
-   "text": "to return the results we require we'll complete this chapter with some final notes on tools and commands that are available with SQL server to help analyze and tune query performance in SQL server time statistics are commonly reported in milliseconds in the examples and exercises presented in this chapter we compared queries and said that based on the differences in time one would likely run slower or faster than the other in reality the time differences reported in the examples and exercises would be unnoticeable"
+   "text": "to return the results we require we'll complete this chapter with some final notes on tools and commands that are available with SQL Server to help analyze and tune query performance in SQL Server time statistics are commonly reported in milliseconds in the examples and exercises presented in this chapter we compared queries and said that based on the differences in time one would likely run slower or faster than the other in reality the time differences reported in the examples and exercises would be unnoticeable"
   },
   {
    "id": 2353,
    "start": 63989.22,
    "end": 64017.46,
-   "text": "in the real world it would not be uncommon to work with large complex queries that run for 10 minutes one hour or more this is where utilizing time statistics for query tuning performance is invaluable this chapter provided a brief overview of query statistics indexes and execution plans all of these are advanced topics with many entire books and websites devoted to each of these and other query performance tuning tools and commands the use of SQL server tools and commands discussed in this chapter"
+   "text": "in the real world it would not be uncommon to work with large complex queries that run for 10 minutes one hour or more this is where utilizing time statistics for query tuning performance is invaluable this chapter provided a brief overview of query statistics indexes and execution plans all of these are advanced topics with many entire books and websites devoted to each of these and other query performance tuning tools and commands the use of SQL Server tools and commands discussed in this chapter"
   },
   {
    "id": 2354,

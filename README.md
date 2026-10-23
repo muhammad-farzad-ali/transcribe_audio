@@ -69,14 +69,20 @@ of `data_engineering_complete.m4a`):
 The full 18 h 35 m file ran in **~14 minutes** (76–80× realtime sustained,
 ~100% GPU utilisation, no throttling), producing 184,772 words.
 
-## Output of this recording
+## Outputs
 
-`transcript/data_engineering_complete.{txt,srt,vtt,json,md}` — 18:35:12,
-2,460 segments, 184,772 words (166 wpm), 14,117 subtitle cues (≤84 chars each).
+| Recording | Duration | Words | Runtime | Files |
+|---|---|---|---|---|
+| `data_engineering_complete.m4a` | 18:35:12 | 184,772 | 14 min | `transcript/data_engineering_complete.*` |
+| `sql_mastery_complete.m4a` | 10:46:14 | 103,675 | 9 min | `transcript/sql_mastery_complete.*` |
+
+Each set has `.txt` (prose), `.md` (timestamped, easiest to read), `.srt` /
+`.vtt` (subtitles, ≤84 chars per cue) and `.json` (segments with timestamps).
 `qa.py` reports no timeline overlaps, no duplicates and full coverage:
 
 ```bash
 .venv/bin/python qa.py transcript/data_engineering_complete.json
+.venv/bin/python qa.py transcript/sql_mastery_complete.json
 ```
 
 ## Notes

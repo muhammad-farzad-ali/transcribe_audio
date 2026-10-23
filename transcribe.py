@@ -210,7 +210,10 @@ def norm_text(text: str) -> str:
 # Conservative normalisation of domain words the ASR hears but often writes in
 # lowercase. Only applied to standalone tokens, never inside existing words.
 PROPER_TERMS = {
+    "mysql workbench": "MySQL Workbench",
+    "sql server": "SQL Server",
     "clean tracks": "CleanTracks",
+    "hamidani": "Hamedani",
     "adrian": "Adrian",
     "sql": "SQL",
     "aws": "AWS",
